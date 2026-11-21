@@ -93,15 +93,36 @@ def make_data_splits(
 
     return train_indices, val_indices, test_indices
 
+def image_features(img,with_position=False):
+    """
+    return per-pixel features, both RGB and optionally position in range [0,1]
 
-def image_to_pixels(img, labels, target_class_ids):
+    INPUT
+    img: the image
+    with_position: if True return also position in the features
+    
+    RETURNS
+    feats: the image converted in pixels with the features requested
+    """
+    h, w = img.shape[:2]
+    feats = img.reshape(-1, 3).astype(np.float32) / 255.0
+
+    if with_position:
+        xx, yy = np.meshgrid(np.linspace(0, 1, w), np.linspace(0, 1, h))
+        feats = np.column_stack([feats, xx.ravel(), yy.ravel()]).astype(np.float32)
+
+    return feats
+        
+
+def image_to_pixels(img, labels, target_class_ids, with_position=False):
     """
     image_to_pixels given an image and the wanted true class return the dataset of pixels labeled.
 
     INPUT
-    img = the image to convert
-    labels = labels of the image
-    target_class_ids = the indexes of the target class returned as label 1
+    img: the image to convert
+    labels: labels of the image
+    target_class_ids: the indexes of the target class returned as label 1
+    with_position: if True also position in the features
 
     RETURNS
     X: the converted image
@@ -111,14 +132,14 @@ def image_to_pixels(img, labels, target_class_ids):
 
     valid = flat_labels != 0
 
-    X = img.reshape(-1,3)[valid]
+    X = image_features(img, with_position)[valid]
 
     y = binary_target_mask(flat_labels[valid], target_class_ids)
 
     return X,y
 
 
-def build_pixel_dataset(nyu_ds, indeces, target_class_ids,step=1):
+def build_pixel_dataset(nyu_ds, indeces, target_class_ids,step=1, with_position=False):
     """
     build_pixel_dataset build a dataset of pixels given a dataset of images
 
@@ -127,6 +148,7 @@ def build_pixel_dataset(nyu_ds, indeces, target_class_ids,step=1):
     indeces: which images to include in the selection
     target_class_ids: the true class desired
     step: reduced the dimension of the dataset using a simple step slice, used to lower computation.
+    with_position: if True also position in the features
 
     RETURN
     X: the new dataset
@@ -139,11 +161,11 @@ def build_pixel_dataset(nyu_ds, indeces, target_class_ids,step=1):
         image = image[::step, ::step]
         labels = labels[::step, ::step]
         
-        X,y = image_to_pixels(image,labels,target_class_ids)
+        X,y = image_to_pixels(image,labels,target_class_ids,with_position)
         
         X_parts.append(X)
         y_parts.append(y)
 
-    X = np.concatenate(X_parts).astype(np.float32) / 255.0
+    X = np.concatenate(X_parts)
     y = np.concatenate(y_parts)
     return X, y
