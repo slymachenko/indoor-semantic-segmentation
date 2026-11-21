@@ -92,3 +92,58 @@ def make_data_splits(
     rng.shuffle(train_indices)
 
     return train_indices, val_indices, test_indices
+
+
+def image_to_pixels(img, labels, target_class_ids):
+    """
+    image_to_pixels given an image and the wanted true class return the dataset of pixels labeled.
+
+    INPUT
+    img = the image to convert
+    labels = labels of the image
+    target_class_ids = the indexes of the target class returned as label 1
+
+    RETURNS
+    X: the converted image
+    y: the labels of the pixels
+    """    
+    flat_labels = labels.reshape(-1)
+
+    valid = flat_labels != 0
+
+    X = img.reshape(-1,3)[valid]
+
+    y = binary_target_mask(flat_labels[valid], target_class_ids)
+
+    return X,y
+
+
+def build_pixel_dataset(nyu_ds, indeces, target_class_ids,step=1):
+    """
+    build_pixel_dataset build a dataset of pixels given a dataset of images
+
+    INPUT
+    nyu_ds: the dataset of images
+    indeces: which images to include in the selection
+    target_class_ids: the true class desired
+    step: reduced the dimension of the dataset using a simple step slice, used to lower computation.
+
+    RETURN
+    X: the new dataset
+    y: the labels
+    """
+    X_parts, y_parts = [], []
+
+    for i in indeces:
+        image, labels = nyu_ds.get_pair(i)
+        image = image[::step, ::step]
+        labels = labels[::step, ::step]
+        
+        X,y = image_to_pixels(image,labels,target_class_ids)
+        
+        X_parts.append(X)
+        y_parts.append(y)
+
+    X = np.concatenate(X_parts).astype(np.float32) / 255.0
+    y = np.concatenate(y_parts)
+    return X, y
