@@ -169,3 +169,86 @@ def build_pixel_dataset(nyu_ds, indeces, target_class_ids,step=1, with_position=
     X = np.concatenate(X_parts)
     y = np.concatenate(y_parts)
     return X, y
+
+
+def extract_patch(padded_image, r, c, patch_size):
+    """
+    Extract a patch of determined size from the given image starting from a given pixel
+    
+    INPUT
+    padded_image: The original image with padding, padding needed to extract the correct patch in pixels that are on the border
+    r: row of the selected pixel in the padded image
+    c: column of the selected pixel in the padded image
+    patch_size: The wanted dimension of the patch, patch_size x patch_size, must be odd
+    
+    OUTPUT
+    patch: cutted image
+    """
+    if patch_size % 2 == 0: 
+        raise ValueError("No even numbers accepted in patch size")
+    return padded_image[r-patch_size//2:r+patch_size//2+1,c-patch_size//2:c+patch_size//2+1]
+
+def image_to_patches(img, labels, target_class_ids, step, patch_size):
+    """
+    image_to_patches given an image and the wanted true class return the dataset of pixels labeled with the desired patch around every center pixel.
+
+    INPUT
+    img: the image to convert
+    labels: labels of the image
+    target_class_ids: the indexes of the target class returned as label 1
+    step: how many pixel to skip for each center to be chosen
+    patch_size: the dimension of the desired patch
+
+    RETURNS
+    X: the converted image
+    y: the labels of the center pixels
+    """    
+    #padding
+    p = patch_size//2
+    padded_img = np.pad(img,((p, p), (p, p), (0, 0)),mode="edge")
+
+    #centers grid
+    centers = []
+    for r in range(0,img.shape[0],step):
+        for c in range(0,img.shape[1],step):
+            if labels[r,c] != 0:
+                centers.append((r,c))
+
+    X_parts,y_parts = [],[]
+    for center in centers:
+        X_parts.append(extract_patch(padded_img,center[0]+p,center[1]+p,patch_size))
+        y_parts.append(labels[center[0],center[1]])
+        
+    X = np.stack(X_parts).astype(np.float32) / 255.0
+    y = binary_target_mask(y_parts,target_class_ids)
+    
+    return X,y
+
+def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1):
+    """
+    build_patches_dataset build a dataset of pixels with a patch given a dataset of images
+
+    INPUT
+    nyu_ds: the dataset of images
+    indeces: which images to include in the selection
+    target_class_ids: the true class desired
+    patch_size: dimension of patches
+    step: used to subsample the centers of to reduce computations
+    
+    RETURN
+    X: the new dataset
+    y: the labels
+    """
+    X_parts, y_parts = [], []
+
+    for i in indeces:
+        image, labels = nyu_ds.get_pair(i)
+        
+        X,y = image_to_patches(image,labels,target_class_ids,step, patch_size)
+        
+        X_parts.append(X)
+        y_parts.append(y)
+
+    X = np.concatenate(X_parts)
+    y = np.concatenate(y_parts)
+    return X, y
