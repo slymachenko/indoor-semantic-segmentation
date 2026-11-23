@@ -214,15 +214,18 @@ def image_to_patches(img, labels, target_class_ids, step, patch_size):
             if labels[r,c] != 0:
                 centers.append((r,c))
 
-    X_parts,y_parts = [],[]
+    h, w = img.shape[:2]
+    X_parts,y_parts,pos_parts = [],[],[]
     for center in centers:
         X_parts.append(extract_patch(padded_img,center[0]+p,center[1]+p,patch_size))
         y_parts.append(labels[center[0],center[1]])
+        pos_parts.append((center[0] / (h - 1),center[1] / (w - 1)))
         
     X = np.stack(X_parts).astype(np.float32) / 255.0
     y = binary_target_mask(y_parts,target_class_ids)
+    pos = np.array(pos_parts, dtype=np.float32)
     
-    return X,y
+    return X,y,pos
 
 def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1):
     """
@@ -239,16 +242,18 @@ def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1)
     X: the new dataset
     y: the labels
     """
-    X_parts, y_parts = [], []
+    X_parts, y_parts, pos_parts = [], [], []
 
     for i in indeces:
         image, labels = nyu_ds.get_pair(i)
         
-        X,y = image_to_patches(image,labels,target_class_ids,step, patch_size)
+        X_curr,y_curr,pos_curr = image_to_patches(image,labels,target_class_ids,step, patch_size)
         
-        X_parts.append(X)
-        y_parts.append(y)
+        X_parts.append(X_curr)
+        y_parts.append(y_curr)
+        pos_parts.append(pos_curr)
 
     X = np.concatenate(X_parts)
     y = np.concatenate(y_parts)
-    return X, y
+    pos = np.concatenate(pos_parts)
+    return X, y, pos
