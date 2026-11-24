@@ -213,7 +213,7 @@ def extract_patch(padded_image, r, c, patch_size):
         raise ValueError("No even numbers accepted in patch size")
     return padded_image[r-patch_size//2:r+patch_size//2+1,c-patch_size//2:c+patch_size//2+1]
 
-def image_to_patches(img, labels, target_class_ids, step, patch_size, include_positions=False):
+def image_to_patches(img, labels, target_class_ids, n_pixels, patch_size, rng, include_positions=False):
     """
     image_to_patches given an image and the wanted true class return the dataset of pixels labeled with the desired patch around every center pixel.
 
@@ -221,7 +221,8 @@ def image_to_patches(img, labels, target_class_ids, step, patch_size, include_po
     img: the image to convert
     labels: labels of the image
     target_class_ids: the indexes of the target class returned as label 1
-    step: how many pixel to skip for each center to be chosen
+    n_pixels: how many pixel to extract
+    rng: random
     patch_size: the dimension of the desired patch
     include_position: the function can include the position of the centers
 
@@ -234,12 +235,9 @@ def image_to_patches(img, labels, target_class_ids, step, patch_size, include_po
     p = patch_size//2
     padded_img = np.pad(img,((p, p), (p, p), (0, 0)),mode="edge")
 
-    #centers grid
-    centers = []
-    for r in range(0,img.shape[0],step):
-        for c in range(0,img.shape[1],step):
-            if labels[r,c] != 0:
-                centers.append((r,c))
+    #random centers
+    rows, cols = sample_pixels(labels, n_pixels, rng)
+    centers = list(zip(rows, cols))
 
     h, w = img.shape[:2]
     X_parts,y_parts, pos_parts = [],[],[]
@@ -255,7 +253,7 @@ def image_to_patches(img, labels, target_class_ids, step, patch_size, include_po
     pos = np.array(pos_parts, dtype=np.float32) if include_positions else None
     return X,y,pos
 
-def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1, include_positions=False):
+def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, n_pixels, seed, include_positions=False):
     """
     build_patches_dataset build a dataset of pixels with a patch given a dataset of images
 
@@ -264,7 +262,8 @@ def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1,
     indeces: which images to include in the selection
     target_class_ids: the true class desired
     patch_size: dimension of patches
-    step: used to subsample the centers of to reduce computations
+    n_pixels: how many pixel to extract
+    seed: random seed
     include_position: the function can include the position of the centers
         
     RETURN
@@ -272,12 +271,13 @@ def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1,
     y: the labels
     pos: the position of centers if include_position is enabled
     """
+    rng = np.random.default_rng(seed)
     X_parts, y_parts, pos_parts = [], [], []
 
     for i in indeces:
         image, labels = nyu_ds.get_pair(i)
         
-        X_curr,y_curr,pos_curr = image_to_patches(image,labels,target_class_ids,step, patch_size, include_positions)
+        X_curr,y_curr,pos_curr = image_to_patches(image,labels,target_class_ids,n_pixels, patch_size, rng, include_positions)
         
         X_parts.append(X_curr)
         y_parts.append(y_curr)
