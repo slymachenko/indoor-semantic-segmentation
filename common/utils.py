@@ -10,6 +10,8 @@ from pathlib import Path
 from collections import defaultdict
 import matplotlib.pyplot as plt
 
+import cv2
+
 
 class NYUDepthV2:
     def __init__(self, mat_path):
@@ -287,3 +289,75 @@ def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, n_pixel
     y = np.concatenate(y_parts)
     pos = np.concatenate(pos_parts) if include_positions else None
     return X, y, pos
+
+
+def patch_feature_maps(img, patch_size, with_position=False):
+    """
+    compute for each pixel the features of the patch centered on it
+
+    INPUT
+    img: the image
+    patch_size: dimension of the patch, must be odd
+    with_position: if True also position in the features
+
+    RETURNS
+    maps: (h, w, n_features) mean RGB, variance RGB, mean gradient magnitude, optionally x and y
+    """
+    if patch_size % 2 == 0:
+        raise ValueError("No even numbers accepted in patch size")
+
+    img = img.astype(np.float32) / 255.0
+    size = (patch_size, patch_size)
+
+    # mean and variance of each channel in the patch: var = E[x^2] - E[x]^2
+    mean = cv2.blur(img, size, borderType=cv2.BORDER_REPLICATE)
+    mean_sq = cv2.blur(img ** 2, size, borderType=cv2.BORDER_REPLICATE)
+    var = np.maximum(mean_sq - mean ** 2, 0)
+
+    # mean gradient magnitude in the patch
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0)
+    gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1)
+    grad = cv2.blur(np.sqrt(gx ** 2 + gy ** 2), size, borderType=cv2.BORDER_REPLICATE)
+
+    maps = [mean, var, grad]
+
+    if with_position:
+        h, w = img.shape[:2]
+        xx, yy = np.meshgrid(np.linspace(0, 1, w), np.linspace(0, 1, h))
+        maps += [xx, yy]
+
+    return np.dstack(maps).astype(np.float32)
+
+
+def build_features_dataset(nyu_ds, indeces, target_class_ids, patch_size, n_pixels, seed, with_position=False):
+    """
+    build_features_dataset build a dataset of patch features given a dataset of images
+
+    INPUT
+    nyu_ds: the dataset of images
+    indeces: which images to include in the selection
+    target_class_ids: the true class desired
+    patch_size: dimension of patches
+    n_pixels: how many pixel to extract
+    seed: random seed
+    with_position: if True also position in the features
+
+    RETURN
+    X: the new dataset
+    y: the labels
+    """
+    rng = np.random.default_rng(seed)
+    X_parts, y_parts = [], []
+
+    for i in indeces:
+        image, labels = nyu_ds.get_pair(i)
+        rows, cols = sample_pixels(labels, n_pixels, rng)
+
+        maps = patch_feature_maps(image, patch_size, with_position)
+        X_parts.append(maps[rows, cols])
+        y_parts.append(binary_target_mask(labels[rows, cols], target_class_ids))
+
+    X = np.concatenate(X_parts)
+    y = np.concatenate(y_parts)
+    return X, y
