@@ -5,8 +5,10 @@ from __future__ import annotations
 import h5py
 import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, average_precision_score, accuracy_score, jaccard_score,classification_report, ConfusionMatrixDisplay, RocCurveDisplay, PrecisionRecallDisplay
 from pathlib import Path
 from collections import defaultdict
+import matplotlib.pyplot as plt
 
 
 class NYUDepthV2:
@@ -93,6 +95,54 @@ def make_data_splits(
 
     return train_indices, val_indices, test_indices
 
+def sample_pixels(labels, n_pixels, rng):
+    """
+    sample random pixels
+    
+    INPUT
+    labels: the labels of the pixels
+    n_pixels: the number of pixels
+    rng: random
+    
+    OUTPUT
+    rows_selected
+    cols_selected
+    """
+    rows, cols = np.nonzero(labels)
+    n = min(n_pixels, len(rows))
+    chosen = rng.choice(len(rows), size=n, replace=False)
+    return rows[chosen], cols[chosen]
+
+def evaluate(y_true, y_proba, threshold=0.5):
+    """
+    This function is used to evaluate the different models in the same way
+    
+    INPUT
+    y_true: the true labels
+    y_proba: the probability of being floor
+    threshold: from which probability a pixel is considered floor
+    """
+    y_pred = (y_proba >= threshold).astype(np.uint8)
+    names = ["not floor", "floor"]
+
+    # numbers
+    print(f"AUC:      {roc_auc_score(y_true, y_proba):.3f}")
+    print(f"AP:       {average_precision_score(y_true, y_proba):.3f}")
+    print(f"Accuracy: {accuracy_score(y_true, y_pred):.3f}  (baseline 'always not floor': {1 - y_true.mean():.3f})")
+    print(f"IoU:      {jaccard_score(y_true, y_pred):.3f}")
+    print(classification_report(y_true, y_pred, target_names=names))
+
+    # plots
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5))
+    ConfusionMatrixDisplay.from_predictions(y_true, y_pred, normalize="true", display_labels=names, ax=axes[0])
+    RocCurveDisplay.from_predictions(y_true, y_proba, ax=axes[1])
+    PrecisionRecallDisplay.from_predictions(y_true, y_proba, ax=axes[2])
+    axes[0].set_title("Confusion matrix")
+    axes[1].set_title("ROC curve")
+    axes[2].set_title("Precision-recall curve")
+    fig.tight_layout()
+    plt.show()
+
 def image_features(img,with_position=False):
     """
     return per-pixel features, both RGB and optionally position in range [0,1]
@@ -112,34 +162,9 @@ def image_features(img,with_position=False):
         feats = np.column_stack([feats, xx.ravel(), yy.ravel()]).astype(np.float32)
 
     return feats
-        
-
-def image_to_pixels(img, labels, target_class_ids, with_position=False):
-    """
-    image_to_pixels given an image and the wanted true class return the dataset of pixels labeled.
-
-    INPUT
-    img: the image to convert
-    labels: labels of the image
-    target_class_ids: the indexes of the target class returned as label 1
-    with_position: if True also position in the features
-
-    RETURNS
-    X: the converted image
-    y: the labels of the pixels
-    """    
-    flat_labels = labels.reshape(-1)
-
-    valid = flat_labels != 0
-
-    X = image_features(img, with_position)[valid]
-
-    y = binary_target_mask(flat_labels[valid], target_class_ids)
-
-    return X,y
 
 
-def build_pixel_dataset(nyu_ds, indeces, target_class_ids,step=1, with_position=False):
+def build_pixel_dataset(nyu_ds, indeces, target_class_ids,n_pixels, seed, with_position=False):
     """
     build_pixel_dataset build a dataset of pixels given a dataset of images
 
@@ -147,24 +172,24 @@ def build_pixel_dataset(nyu_ds, indeces, target_class_ids,step=1, with_position=
     nyu_ds: the dataset of images
     indeces: which images to include in the selection
     target_class_ids: the true class desired
-    step: reduced the dimension of the dataset using a simple step slice, used to lower computation.
+    n_pixel: number of extracted pixels
+    seed: random seed
     with_position: if True also position in the features
 
     RETURN
     X: the new dataset
     y: the labels
     """
+    rng = np.random.default_rng(seed)
     X_parts, y_parts = [], []
 
     for i in indeces:
         image, labels = nyu_ds.get_pair(i)
-        image = image[::step, ::step]
-        labels = labels[::step, ::step]
-        
-        X,y = image_to_pixels(image,labels,target_class_ids,with_position)
-        
-        X_parts.append(X)
-        y_parts.append(y)
+        rows, cols = sample_pixels(labels, n_pixels, rng)
+
+        feats = image_features(image, with_position).reshape(*labels.shape, -1)
+        X_parts.append(feats[rows, cols])
+        y_parts.append(binary_target_mask(labels[rows, cols], target_class_ids))
 
     X = np.concatenate(X_parts)
     y = np.concatenate(y_parts)
@@ -188,7 +213,7 @@ def extract_patch(padded_image, r, c, patch_size):
         raise ValueError("No even numbers accepted in patch size")
     return padded_image[r-patch_size//2:r+patch_size//2+1,c-patch_size//2:c+patch_size//2+1]
 
-def image_to_patches(img, labels, target_class_ids, step, patch_size):
+def image_to_patches(img, labels, target_class_ids, step, patch_size, include_positions=False):
     """
     image_to_patches given an image and the wanted true class return the dataset of pixels labeled with the desired patch around every center pixel.
 
@@ -198,10 +223,12 @@ def image_to_patches(img, labels, target_class_ids, step, patch_size):
     target_class_ids: the indexes of the target class returned as label 1
     step: how many pixel to skip for each center to be chosen
     patch_size: the dimension of the desired patch
+    include_position: the function can include the position of the centers
 
     RETURNS
     X: the converted image
     y: the labels of the center pixels
+    pos: the positions of the centers if include_position is enabled
     """    
     #padding
     p = patch_size//2
@@ -215,19 +242,20 @@ def image_to_patches(img, labels, target_class_ids, step, patch_size):
                 centers.append((r,c))
 
     h, w = img.shape[:2]
-    X_parts,y_parts,pos_parts = [],[],[]
+    X_parts,y_parts, pos_parts = [],[],[]
+    
     for center in centers:
         X_parts.append(extract_patch(padded_img,center[0]+p,center[1]+p,patch_size))
         y_parts.append(labels[center[0],center[1]])
-        pos_parts.append((center[0] / (h - 1),center[1] / (w - 1)))
+        if include_positions:
+            pos_parts.append((center[0] / (h - 1),center[1] / (w - 1)))
         
     X = np.stack(X_parts).astype(np.float32) / 255.0
     y = binary_target_mask(y_parts,target_class_ids)
-    pos = np.array(pos_parts, dtype=np.float32)
-    
+    pos = np.array(pos_parts, dtype=np.float32) if include_positions else None
     return X,y,pos
 
-def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1):
+def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1, include_positions=False):
     """
     build_patches_dataset build a dataset of pixels with a patch given a dataset of images
 
@@ -237,17 +265,19 @@ def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1)
     target_class_ids: the true class desired
     patch_size: dimension of patches
     step: used to subsample the centers of to reduce computations
-    
+    include_position: the function can include the position of the centers
+        
     RETURN
     X: the new dataset
     y: the labels
+    pos: the position of centers if include_position is enabled
     """
     X_parts, y_parts, pos_parts = [], [], []
 
     for i in indeces:
         image, labels = nyu_ds.get_pair(i)
         
-        X_curr,y_curr,pos_curr = image_to_patches(image,labels,target_class_ids,step, patch_size)
+        X_curr,y_curr,pos_curr = image_to_patches(image,labels,target_class_ids,step, patch_size, include_positions)
         
         X_parts.append(X_curr)
         y_parts.append(y_curr)
@@ -255,5 +285,5 @@ def build_patches_dataset(nyu_ds, indeces, target_class_ids, patch_size, step=1)
 
     X = np.concatenate(X_parts)
     y = np.concatenate(y_parts)
-    pos = np.concatenate(pos_parts)
+    pos = np.concatenate(pos_parts) if include_positions else None
     return X, y, pos
