@@ -1,4 +1,4 @@
-name: cv
+name: semseg
 channels:
   - conda-forge
 dependencies:
@@ -11,3 +11,7 @@ dependencies:
   - joblib
   - numpy
   - h5py
+  - opencv
+  - pip:
+    - --no-deps
+    - -e .
