@@ -1,10 +1,9 @@
 # general
-data/
-local/
-logs/
-figs/
-.env
-*.log
+/data/
+/local/
+/logs/
+/outputs/
+/.env
 
 # packages
 __pycache__/
