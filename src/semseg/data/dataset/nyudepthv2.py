@@ -1,24 +1,10 @@
-from abc import ABC, abstractmethod
 from pathlib import Path
 import h5py
 
+from semseg.data.dataset import SegmentationDataset
+
 from typing import Any
 from numpy.typing import NDArray
-
-
-class SegmentationDataset(ABC):
-    """Interface for image segmentation datasets."""
-
-    @abstractmethod
-    def get_pair(self, index: int) -> tuple[NDArray[Any], NDArray[Any]]:
-        """Return an image and its segmentation mask."""
-        ...
-
-    @abstractmethod
-    def __len__(self) -> int: ...
-
-    @abstractmethod
-    def close(self) -> None: ...
 
 
 class NYUDepthV2Dataset(SegmentationDataset):

@@ -40,15 +40,15 @@ def create_splits(
     val_scenes = scenes[n_test : n_test + n_val]
     train_scenes = scenes[n_test + n_val :]
 
-    test_indicies = [idx for scene in test_scenes for idx in scene_to_indices[scene]]
-    val_indicies = [idx for scene in val_scenes for idx in scene_to_indices[scene]]
-    train_indicies = [idx for scene in train_scenes for idx in scene_to_indices[scene]]
+    test_indices = [idx for scene in test_scenes for idx in scene_to_indices[scene]]
+    val_indices = [idx for scene in val_scenes for idx in scene_to_indices[scene]]
+    train_indices = [idx for scene in train_scenes for idx in scene_to_indices[scene]]
 
-    rng.shuffle(test_indicies)
-    rng.shuffle(val_indicies)
-    rng.shuffle(train_indicies)
+    rng.shuffle(test_indices)
+    rng.shuffle(val_indices)
+    rng.shuffle(train_indices)
 
-    return train_indicies, val_indicies, test_indicies
+    return train_indices, val_indices, test_indices
 
 
 def get_splits_filename(
@@ -82,15 +82,23 @@ def save_splits(
     return destination
 
 
-def load_splits(path: str | Path) -> dict[str, list[int]]:
-    """Load persisted indices and perform basic consistency checks."""
+def load_splits(path: str | Path) -> tuple[list[int], list[int], list[int]]:
+    """Load split indices."""
     source = Path(path)
 
     with source.open("r", encoding="utf-8") as file:
         raw = json.load(file)
 
-    return (
-        [int(i) for i in raw["train"]],
-        [int(i) for i in raw["validation"]],
-        [int(i) for i in raw["test"]],
-    )
+    splits = []
+    for name in ("train", "validation", "test"):
+        indices = raw.get(name)
+        if not isinstance(indices, list) or any(
+            not isinstance(index, int) or isinstance(index, bool) or index < 0
+            for index in indices
+        ):
+            raise ValueError(f"Invalid {name} indices in split file: {source}")
+        if len(indices) != len(set(indices)):
+            raise ValueError(f"Duplicate {name} indices in split file: {source}")
+        splits.append(indices)
+
+    return splits[0], splits[1], splits[2]
