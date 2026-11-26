@@ -4,6 +4,7 @@ from typing import Any
 
 
 def build_model(name: str, params: dict[str, Any] | None = None) -> SegmentationModel:
+    """Instantiate a model based on its string name and parameters."""
     params = dict(params or {})
     estimator = None
 

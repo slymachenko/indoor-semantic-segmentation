@@ -18,9 +18,5 @@ FIGS_DIR = OUTPUTS_DIR / "figures"
 
 
 def ensure_dirs() -> None:
-    for directory in (
-        DATA_RAW_DIR,
-        DATA_SPLITS_DIR,
-        FIGS_DIR,
-    ):
+    for directory in (DATA_RAW_DIR, DATA_SPLITS_DIR, CONFIGS_DIR, LOGS_DIR, FIGS_DIR):
         directory.mkdir(parents=True, exist_ok=True)
