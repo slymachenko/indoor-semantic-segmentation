@@ -1,0 +1,8 @@
+name: nyu_depth_v2
+filename: "nyu_depth_v2_labeled.mat"
+ignore_index: 0
+
+split:
+  random_state: 42
+  val_fraction: 0.15
+  test_fraction: 0.15
