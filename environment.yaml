@@ -11,7 +11,7 @@ dependencies:
   - joblib
   - numpy
   - h5py
-  - opencv
+  - pyyaml
   - pip:
     - --no-deps
     - -e .

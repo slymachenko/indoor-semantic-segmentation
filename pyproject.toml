@@ -14,7 +14,7 @@ dependencies = [
     "matplotlib",
     "joblib",
     "h5py",
-    "opencv",
+    "PyYAML",
 ]
 
 [project.optional-dependencies]
